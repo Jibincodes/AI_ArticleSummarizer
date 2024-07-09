@@ -96,17 +96,21 @@ class SummarizerApp(QWidget):
         # decode the summary output and remove the special tokens
         summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
         return summary
+    # Function to answer the question based on the article text
     def answer_question(self):
         question = self.question_input.text()
         context = self.summary_output.toPlainText()
         if question and context:
+        #if question and self.article_text:
+            #answer = self.get_answer(question, self.article_text)
             answer = self.get_answer(question, context)
             self.answer_output.setText(answer)
         else:
-            self.answer_output.setText("Please provide a valid question and summary.")
-
+            self.answer_output.setText("Please provide a valid question.")
+    # Function to get the answer using the BERT model
     def get_answer(self, question, context):
-        inputs = bert_tokenizer.encode_plus(question, context, add_special_tokens=True, return_tensors='pt')
+     try:
+        inputs = bert_tokenizer.encode_plus(question, context, add_special_tokens=True, return_tensors='pt', max_length=512, truncation=True)
         input_ids = inputs['input_ids'].tolist()[0]
         text_tokens = bert_tokenizer.convert_ids_to_tokens(input_ids)
 
@@ -119,6 +123,10 @@ class SummarizerApp(QWidget):
 
         answer = bert_tokenizer.convert_tokens_to_string(bert_tokenizer.convert_ids_to_tokens(input_ids[answer_start:answer_end]))
         return answer
+     except Exception as e:
+        print(f"Error getting answer: {e}")
+        return "Sorry, I could not find an answer to your question. Please try again."
+
 
 
 if __name__ == '__main__':
