@@ -110,14 +110,17 @@ class SummarizerApp(QWidget):
     # Function to get the answer using the BERT model
     def get_answer(self, question, context):
      try:
+        # encode the question and context using the BERT tokenizer
         inputs = bert_tokenizer.encode_plus(question, context, add_special_tokens=True, return_tensors='pt', max_length=512, truncation=True)
+        #convert the input ids to a list and to get the tokens
         input_ids = inputs['input_ids'].tolist()[0]
         text_tokens = bert_tokenizer.convert_ids_to_tokens(input_ids)
 
+        #getting the answer with the help of the BERT model (using attention mask and feed forward)
         outputs = bert_model(**inputs)
         answer_start_scores = outputs.start_logits
         answer_end_scores = outputs.end_logits
-
+        # get the answer by finding the tokens with the highest start and end scores
         answer_start = torch.argmax(answer_start_scores)
         answer_end = torch.argmax(answer_end_scores) + 1
 
@@ -126,8 +129,6 @@ class SummarizerApp(QWidget):
      except Exception as e:
         print(f"Error getting answer: {e}")
         return "Sorry, I could not find an answer to your question. Please try again."
-
-
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
