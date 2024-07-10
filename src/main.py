@@ -211,6 +211,7 @@ class SummarizerApp(QWidget):
             else:
                 self.summary_output.setText("Could not extract text from PDF. Please try again.")
 
+    #function to extract the text from the PDF file
     def get_pdf_text(self, file_path):
         try:
             doc = fitz.open(file_path)
