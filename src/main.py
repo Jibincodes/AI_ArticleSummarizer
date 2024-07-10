@@ -1,6 +1,6 @@
 import sys
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QTextEdit, QFileDialog, \
-    QMessageBox
+    QMessageBox, QRadioButton, QHBoxLayout, QButtonGroup
 import requests
 from bs4 import BeautifulSoup
 from transformers import BartForConditionalGeneration, BartTokenizer, BertTokenizer, BertForQuestionAnswering
@@ -8,6 +8,8 @@ import torch
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from textwrap import wrap
+# for extracting from PDF
+import fitz
 
 # using the BART model for summarization
 # according to huggingface documentation, the BART model is one of the best for summarization tasks
@@ -33,12 +35,31 @@ class SummarizerApp(QWidget):
         self.setWindowTitle('News Article Summarizer')
 
         layout = QVBoxLayout()
+        #---------------------------------------
+        # adding radio buttons to choose between summarization feature for url or pdf
+        self.url_radio = QRadioButton('URL')
+        self.pdf_radio = QRadioButton('PDF')
+        self.url_radio.setChecked(True)
 
+        self.radio_layout = QHBoxLayout()
+        self.radio_layout.addWidget(self.url_radio)
+        self.radio_layout.addWidget(self.pdf_radio)
+
+        self.radio_group = QButtonGroup()
+        self.radio_group.addButton(self.url_radio)
+        self.radio_group.addButton(self.pdf_radio)
+
+        layout.addLayout(self.radio_layout)
+        #---------------------------------------
         self.url_label = QLabel('Enter the news Article URL:')
         layout.addWidget(self.url_label)
 
         self.url_input = QLineEdit(self)
         layout.addWidget(self.url_input)
+
+        self.upload_button = QPushButton('Upload PDF', self)
+        self.upload_button.clicked.connect(self.upload_pdf)
+        layout.addWidget(self.upload_button)
 
         self.summarize_button = QPushButton('Summarize', self)
         self.summarize_button.clicked.connect(self.summarize_article)
@@ -77,6 +98,7 @@ class SummarizerApp(QWidget):
         self.setLayout(layout)
 
     def summarize_article(self):
+     if self.url_radio.isChecked():
         url = self.url_input.text()
         article_text = self.get_article_text(url)
         if article_text:
@@ -84,6 +106,13 @@ class SummarizerApp(QWidget):
             self.summary_output.setText(summary)
         else:
             self.summary_output.setText("Could not fetch article text. Please check the URL and try again.")
+     elif self.pdf_radio.isChecked():
+         if self.pdf_text:
+             summary = self.summarize_text(self.pdf_text)
+             self.summary_output.setText(summary)
+         else:
+             self.summary_output.setText("Please upload a PDF file to summarize.")
+
 
     # Function to fetch the article text from the URL using paragraph tags
     def get_article_text(self, url):
@@ -106,6 +135,7 @@ class SummarizerApp(QWidget):
         # decode the summary output and remove the special tokens
         summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
         return summary
+
     # Function to answer the question based on the article text
     def answer_question(self):
         #url = self.url_input.text()
@@ -119,6 +149,7 @@ class SummarizerApp(QWidget):
             self.answer_output.setText(answer)
         else:
             self.answer_output.setText("Please provide a valid question.")
+
     # Function to get the answer using the BERT model
     def get_answer(self, question, context):
      try:
@@ -168,6 +199,28 @@ class SummarizerApp(QWidget):
         QMessageBox.information(self, "PDF Saved", "The summary has been successfully saved as a PDF.")
      except Exception as e:
         QMessageBox.critical(self, "Error", f"Error saving PDF: {e}")
+
+    #function to upload the pdf file and extract the text
+    def upload_pdf(self):
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getOpenFileName(self, "Upload PDF", "", "PDF Files (*.pdf);;All Files (*)", options=options)
+        if file_path:
+            self.pdf_text = self.get_pdf_text(file_path)
+            if self.pdf_text:
+                self.summary_output.setText("PDF uploaded successfully. Click 'Summarize' to get the summary.")
+            else:
+                self.summary_output.setText("Could not extract text from PDF. Please try again.")
+
+    def get_pdf_text(self, file_path):
+        try:
+            doc = fitz.open(file_path)
+            text = ""
+            for page in doc:
+                text += page.get_text()
+            return text
+        except Exception as e:
+            print(f"Error reading PDF: {e}")
+            return None
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

@@ -4,3 +4,4 @@ beautifulsoup4
 transformers
 torch
 reportlab
+PyMuPDF
