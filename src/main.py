@@ -1,9 +1,13 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QTextEdit
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QTextEdit, QFileDialog, \
+    QMessageBox
 import requests
 from bs4 import BeautifulSoup
 from transformers import BartForConditionalGeneration, BartTokenizer, BertTokenizer, BertForQuestionAnswering
 import torch
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from textwrap import wrap
 
 # using the BART model for summarization
 # according to huggingface documentation, the BART model is one of the best for summarization tasks
@@ -64,6 +68,11 @@ class SummarizerApp(QWidget):
         self.answer_output = QTextEdit(self)
         self.answer_output.setReadOnly(True)
         layout.addWidget(self.answer_output)
+
+        #new export to pdf button
+        self.export_button = QPushButton('Export as PDF', self)
+        self.export_button.clicked.connect(self.export_to_pdf)
+        layout.addWidget(self.export_button)
         #-------------------------------------------
         self.setLayout(layout)
 
@@ -132,6 +141,33 @@ class SummarizerApp(QWidget):
      except Exception as e:
         print(f"Error getting answer: {e}")
         return "Sorry, I could not find an answer to your question. Please try again."
+
+    #function to export the summary to a pdf file
+    def export_to_pdf(self):
+        summary = self.summary_output.toPlainText()
+        if summary:
+            options = QFileDialog.Options()
+            file_path, _ = QFileDialog.getSaveFileName(self, "Save Summary as PDF", "",
+                                                       "PDF Files (*.pdf);;All Files (*)", options=options)
+            if file_path:
+                self.save_pdf(file_path, summary)
+        else:
+            self.answer_output.setText("No summary to export.")
+    def save_pdf(self, file_path, summary):
+     try:
+        c = canvas.Canvas(file_path, pagesize=letter)
+        width, height = letter
+        c.drawString(100, height - 100, "Summary:")
+        text = c.beginText(100, height - 120)
+        text.setFont("Times-Roman", 12)
+        wrapped_text = wrap(summary, 80)  # Wrap text at 80 characters
+        for line in wrapped_text:
+            text.textLine(line)
+        c.drawText(text)
+        c.save()
+        QMessageBox.information(self, "PDF Saved", "The summary has been successfully saved as a PDF.")
+     except Exception as e:
+        QMessageBox.critical(self, "Error", f"Error saving PDF: {e}")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
