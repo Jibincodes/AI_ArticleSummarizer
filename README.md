@@ -1,6 +1,6 @@
-# News_Summarization
+# AI_Summarizer
 
-The goal is to build a news summariser with the help of LLM for any news articles, where the user only have to provide URL of the news article.
+The goal is to build an AI-powered summarizer using LLMs for any article or text, where the user only has to provide the URL of the article or pdf.
 
 #### Contents:
 - [Analysis](#analysis)
