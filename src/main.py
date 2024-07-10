@@ -24,7 +24,7 @@ class SummarizerApp(QWidget):
         super().__init__()
         self.initUI()
 
-
+    # Setting up the UI components
     def initUI(self):
         self.setWindowTitle('News Article Summarizer')
 
@@ -75,6 +75,7 @@ class SummarizerApp(QWidget):
             self.summary_output.setText(summary)
         else:
             self.summary_output.setText("Could not fetch article text. Please check the URL and try again.")
+
     # Function to fetch the article text from the URL using paragraph tags
     def get_article_text(self, url):
         try:
@@ -98,11 +99,13 @@ class SummarizerApp(QWidget):
         return summary
     # Function to answer the question based on the article text
     def answer_question(self):
+        #url = self.url_input.text()
+        #article_text = self.get_article_text(url)
         question = self.question_input.text()
         context = self.summary_output.toPlainText()
         if question and context:
-        #if question and self.article_text:
-            #answer = self.get_answer(question, self.article_text)
+        #if question and article_text:
+            #answer = self.get_answer(question, article_text)
             answer = self.get_answer(question, context)
             self.answer_output.setText(answer)
         else:
