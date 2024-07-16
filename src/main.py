@@ -10,6 +10,7 @@ from reportlab.pdfgen import canvas
 from textwrap import wrap
 # for extracting from PDF
 import fitz
+from PyPDF2 import PdfReader
 
 # using the BART model for summarization
 # according to huggingface documentation, the BART model is one of the best for summarization tasks
@@ -116,6 +117,7 @@ class SummarizerApp(QWidget):
      elif self.pdf_radio.isChecked():
          if self.pdf_text:
              summary = self.summarize_text(self.pdf_text)
+             #summary = self.summarize_text_with_gemini(self.pdf_text)
              self.summary_output.setText(summary)
          else:
              self.summary_output.setText("Please upload a PDF file to summarize.")
@@ -153,7 +155,7 @@ class SummarizerApp(QWidget):
             chunk_text = longformer_tokenizer.decode(chunk, skip_special_tokens=True)
             bart_inputs = tokenizer.encode("summarize: " + chunk_text, return_tensors='pt', max_length=1024, truncation=True)
              # generate the summary output using beam search
-            summary_ids = model.generate(bart_inputs, max_length=400, min_length=200, length_penalty=2.0, num_beams=4,
+            summary_ids = model.generate(bart_inputs, max_length=700, min_length=400, length_penalty=2.0, num_beams=4,
                                      early_stopping=True)
             # decode the summary output and remove the special tokens
             summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
@@ -244,7 +246,7 @@ class SummarizerApp(QWidget):
                 self.summary_output.setText("Could not extract text from PDF. Please try again.")
 
     #function to extract the text from the PDF file
-    def get_pdf_text(self, file_path):
+    """def get_pdf_text(self, file_path):
         try:
             doc = fitz.open(file_path)
             text = ""
@@ -252,15 +254,29 @@ class SummarizerApp(QWidget):
                 page = doc.load_page(page_num)
                 blocks = page.get_text("blocks")  # Get text blocks
 
-                # Sort blocks by their vertical and then horizontal positions
+                # Sorting the blocks by their vertical and then horizontal positions
                 blocks.sort(key=lambda b: (b[1], b[0]))
 
                 for block in blocks:
                     text += block[4]  # Extract the actual text from the block
-                    text += "\n"  # Add a newline to separate blocks
+                    text += "\n"  # newline to separate blocks
 
-                text += "\n"  # Add a newline to separate pages
+                text += "\n"  # newline to separate pages
 
+            return text
+        except Exception as e:
+            print(f"Error reading PDF: {e}")
+            return None"""
+
+    def get_pdf_text(self, file_path):
+        try:
+            doc = PdfReader(file_path)
+            text = ""
+            for i, page in enumerate(doc.pages):
+                content = page.extract_text()
+                if content:
+                    text += content
+                    text += "\n"  # to separate text from different pages
             return text
         except Exception as e:
             print(f"Error reading PDF: {e}")
