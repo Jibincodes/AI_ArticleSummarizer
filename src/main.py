@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QLineEdi
     QMessageBox, QRadioButton, QHBoxLayout, QButtonGroup
 import requests
 from bs4 import BeautifulSoup
-from transformers import BartForConditionalGeneration, BartTokenizer, BertTokenizer, BertForQuestionAnswering
+from transformers import BartForConditionalGeneration, BartTokenizer, BertTokenizer, BertForQuestionAnswering, LongformerTokenizer, LongformerModel
 import torch
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -18,6 +18,12 @@ model_name = 'facebook/bart-large-cnn'
 tokenizer = BartTokenizer.from_pretrained(model_name)
 model = BartForConditionalGeneration.from_pretrained(model_name)
 
+#----------------------------------------
+# using the Longformer model for handling longer texts
+longformer_model_name = 'allenai/longformer-base-4096'
+longformer_tokenizer = LongformerTokenizer.from_pretrained(longformer_model_name)
+longformer_model = LongformerModel.from_pretrained(longformer_model_name)
+
 # using the BERT model for question answering
 #bert_model_name = 'distilbert-base-uncased-distilled-squad'
 bert_model_name = 'bert-large-uncased-whole-word-masking-finetuned-squad'
@@ -29,6 +35,7 @@ class SummarizerApp(QWidget):
     def __init__(self):
         super().__init__()
         self.initUI()
+        self.pdf_text = ""
 
     # Setting up the UI components
     def initUI(self):
@@ -127,14 +134,39 @@ class SummarizerApp(QWidget):
             return None
 
     def summarize_text(self, text):
-        # encode the text  and set the max length to 1024
-        inputs = tokenizer.encode("summarize: " + text, return_tensors='pt', max_length=1024, truncation=True)
-        # generate the summary output using beam search
-        summary_ids = model.generate(inputs, max_length=180, min_length=80, length_penalty=2.0, num_beams=4,
+        #-----------------------------------------------
+        #spliting the text into chunks of 4096 tokens
+        chunk_size = 4096
+        overlap = 512 #to maintain the context
+        tokens = longformer_tokenizer.encode(text)
+        chunks = [tokens[i:i + chunk_size] for i in range(0, len(tokens), chunk_size - overlap)]
+
+        summaries = []
+        for chunk in chunks:
+            #convert the chunk to a tensor
+            #inputs = torch.tensor(chunk).unsqueeze(0)
+            #with torch.no_grad():
+            #    outputs = longformer_model(inputs)
+
+            #-----------------------------------------------
+            #get the summary using BART model
+            chunk_text = longformer_tokenizer.decode(chunk, skip_special_tokens=True)
+            bart_inputs = tokenizer.encode("summarize: " + chunk_text, return_tensors='pt', max_length=1024, truncation=True)
+             # generate the summary output using beam search
+            summary_ids = model.generate(bart_inputs, max_length=400, min_length=200, length_penalty=2.0, num_beams=4,
                                      early_stopping=True)
-        # decode the summary output and remove the special tokens
-        summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
-        return summary
+            # decode the summary output and remove the special tokens
+            summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+            summaries.append(summary)
+
+        combined_summary = ' '.join(summaries)
+        # Now summarize the combined summary text
+        #bart_inputs = tokenizer.encode("summarize: " + combined_summary, return_tensors='pt', max_length=1024,
+        #                               truncation=True)
+        #summary_ids = model.generate(bart_inputs, max_length=600, min_length=300, length_penalty=2.0, num_beams=8,
+        #                             early_stopping=True)
+        #final_summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+        return combined_summary
 
     # Function to answer the question based on the article text
     def answer_question(self):
@@ -216,8 +248,19 @@ class SummarizerApp(QWidget):
         try:
             doc = fitz.open(file_path)
             text = ""
-            for page in doc:
-                text += page.get_text()
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                blocks = page.get_text("blocks")  # Get text blocks
+
+                # Sort blocks by their vertical and then horizontal positions
+                blocks.sort(key=lambda b: (b[1], b[0]))
+
+                for block in blocks:
+                    text += block[4]  # Extract the actual text from the block
+                    text += "\n"  # Add a newline to separate blocks
+
+                text += "\n"  # Add a newline to separate pages
+
             return text
         except Exception as e:
             print(f"Error reading PDF: {e}")
