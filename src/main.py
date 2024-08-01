@@ -1,3 +1,4 @@
+import string
 import sys
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QTextEdit, QFileDialog, \
     QMessageBox, QRadioButton, QHBoxLayout, QButtonGroup
@@ -10,15 +11,29 @@ from reportlab.pdfgen import canvas
 from textwrap import wrap
 # for extracting from PDF
 import fitz
-from PyPDF2 import PdfReader
-
+import re
+#------------------------------------
+#from langchain.text_splitter import RecursiveCharacterTextSplitter
+#from langchain_community.document_loaders import PyPDFLoader
+#import pypdf
+#import sentencepiece
+#----------------------------------------------------------------
+# for extractive summarization
+import numpy as np
+import networkx as nx
+from nltk.tokenize import sent_tokenize, word_tokenize
+from nltk.corpus import stopwords
+from sklearn.metrics.pairwise import cosine_similarity
+import nltk
+nltk.download('punkt')
+nltk.download('stopwords')
+#---------------------------------------------------------------
 # using the BART model for summarization
 # according to huggingface documentation, the BART model is one of the best for summarization tasks
 # the model is trained on CNN/DailyMail dataset
 model_name = 'facebook/bart-large-cnn'
 tokenizer = BartTokenizer.from_pretrained(model_name)
 model = BartForConditionalGeneration.from_pretrained(model_name)
-
 #----------------------------------------
 # using the Longformer model for handling longer texts
 longformer_model_name = 'allenai/longformer-base-4096'
@@ -40,7 +55,7 @@ class SummarizerApp(QWidget):
 
     # Setting up the UI components
     def initUI(self):
-        self.setWindowTitle('News Article Summarizer')
+        self.setWindowTitle('AI Summarizer')
 
         layout = QVBoxLayout()
         #---------------------------------------
@@ -58,6 +73,21 @@ class SummarizerApp(QWidget):
         self.radio_group.addButton(self.pdf_radio)
 
         layout.addLayout(self.radio_layout)
+
+        # adding new buttons to choose between abstractive and extractive summarization
+        self.abstractive_radio = QRadioButton('Abstractive')
+        self.extractive_radio = QRadioButton('Extractive')
+        self.abstractive_radio.setChecked(True)
+
+        self.summarization_radio_layout = QHBoxLayout()
+        self.summarization_radio_layout.addWidget(self.abstractive_radio)
+        self.summarization_radio_layout.addWidget(self.extractive_radio)
+
+        self.summarization_radio_group = QButtonGroup()
+        self.summarization_radio_group.addButton(self.abstractive_radio)
+        self.summarization_radio_group.addButton(self.extractive_radio)
+
+        layout.addLayout(self.summarization_radio_layout)
         #---------------------------------------
         self.url_label = QLabel('Enter the news Article URL:')
         layout.addWidget(self.url_label)
@@ -136,6 +166,14 @@ class SummarizerApp(QWidget):
             return None
 
     def summarize_text(self, text):
+        if self.abstractive_radio.isChecked():
+            return self.abstractive_summarize(text)
+        else:
+            #return self.extractive_summarize(text, num_sentences=10)
+            return self.extractive_summary_textrank(text, num_sentences=10)
+            #return self.extractive_summary_tfidf(text, num_sentences=10)
+
+    def abstractive_summarize(self, text):
         #-----------------------------------------------
         #spliting the text into chunks of 4096 tokens
         chunk_size = 4096
@@ -154,11 +192,15 @@ class SummarizerApp(QWidget):
             #get the summary using BART model
             chunk_text = longformer_tokenizer.decode(chunk, skip_special_tokens=True)
             bart_inputs = tokenizer.encode("summarize: " + chunk_text, return_tensors='pt', max_length=1024, truncation=True)
+            #inputs = t5_tokenizer.encode("summarize: " + chunk_text, return_tensors='pt', max_length=1024, truncation=True)
              # generate the summary output using beam search
-            summary_ids = model.generate(bart_inputs, max_length=700, min_length=400, length_penalty=2.0, num_beams=4,
+            summary_ids = model.generate(bart_inputs, max_length=600, min_length=300, length_penalty=2.0, num_beams=4,
                                      early_stopping=True)
+            #summary_ids = t5_model.generate(inputs, max_length=600, min_length=300, length_penalty=2.0, num_beams=4, early_stopping=True)
+
             # decode the summary output and remove the special tokens
             summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+            #summary = t5_tokenizer.decode(summary_ids[0], skip_special_tokens=True)
             summaries.append(summary)
 
         combined_summary = ' '.join(summaries)
@@ -169,6 +211,53 @@ class SummarizerApp(QWidget):
         #                             early_stopping=True)
         #final_summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
         return combined_summary
+
+    #-------------------------------------------------------
+    #this is the extractive summarization using the textrank algorithm
+    def sentence_similarity(self, sent1, sent2, stopwords=None):
+        if stopwords is None:
+            stopwords = []
+
+        sent1 = [w.lower() for w in word_tokenize(sent1) if w.lower() not in stopwords and w not in string.punctuation]
+        sent2 = [w.lower() for w in word_tokenize(sent2) if w.lower() not in stopwords and w not in string.punctuation]
+
+        all_words = list(set(sent1 + sent2))
+
+        vector1 = [0] * len(all_words)
+        vector2 = [0] * len(all_words)
+
+        for w in sent1:
+            vector1[all_words.index(w)] += 1
+
+        for w in sent2:
+            vector2[all_words.index(w)] += 1
+
+        return cosine_similarity([vector1], [vector2])[0][0]
+
+    def build_similarity_matrix(self, sentences, stop_words):
+        similarity_matrix = np.zeros((len(sentences), len(sentences)))
+
+        for idx1 in range(len(sentences)):
+            for idx2 in range(len(sentences)):
+                if idx1 != idx2:
+                    similarity_matrix[idx1][idx2] = self.sentence_similarity(sentences[idx1], sentences[idx2],
+                                                                             stop_words)
+
+        return similarity_matrix
+
+    def extractive_summary_textrank(self, text, num_sentences=10):
+        stop_words = stopwords.words('english')
+        sentences = sent_tokenize(text)
+
+        sentence_similarity_matrix = self.build_similarity_matrix(sentences, stop_words)
+        sentence_similarity_graph = nx.from_numpy_array(sentence_similarity_matrix)
+        scores = nx.pagerank(sentence_similarity_graph)
+
+        ranked_sentences = sorted(((scores[i], s) for i, s in enumerate(sentences)), reverse=True)
+
+        summarize_text = [ranked_sentences[i][1] for i in range(min(num_sentences, len(ranked_sentences)))]
+        return " ".join(summarize_text)
+    #this is the end of extractive summarization
 
     # Function to answer the question based on the article text
     def answer_question(self):
@@ -239,14 +328,23 @@ class SummarizerApp(QWidget):
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getOpenFileName(self, "Upload PDF", "", "PDF Files (*.pdf);;All Files (*)", options=options)
         if file_path:
+            #self.pdf_text = self.file_preprocessing(file_path)
             self.pdf_text = self.get_pdf_text(file_path)
             if self.pdf_text:
                 self.summary_output.setText("PDF uploaded successfully. Click 'Summarize' to get the summary.")
             else:
                 self.summary_output.setText("Could not extract text from PDF. Please try again.")
 
+    #function to clean the text
+    def clean_text(self, text):
+        # Remove multiple newlines
+        text = re.sub(r'\n+', '\n', text)
+        # Remove leading/trailing whitespace
+        text = text.strip()
+        return text
+
     #function to extract the text from the PDF file
-    """def get_pdf_text(self, file_path):
+    def get_pdf_text(self, file_path):
         try:
             doc = fitz.open(file_path)
             text = ""
@@ -266,21 +364,42 @@ class SummarizerApp(QWidget):
             return text
         except Exception as e:
             print(f"Error reading PDF: {e}")
-            return None"""
-
-    def get_pdf_text(self, file_path):
-        try:
-            doc = PdfReader(file_path)
-            text = ""
-            for i, page in enumerate(doc.pages):
-                content = page.extract_text()
-                if content:
-                    text += content
-                    text += "\n"  # to separate text from different pages
-            return text
-        except Exception as e:
-            print(f"Error reading PDF: {e}")
             return None
+
+    #function is not used, this is an alternative to the get_pdf_text function
+    """def file_preprocessing(self, file):
+        try:
+            # Load PDF file
+            print(f"Loading PDF file: {file}")
+            loader = PyPDFLoader(file)
+            pages = loader.load_and_split()
+            print(f"Number of pages extracted: {len(pages)}")
+
+            # Initializing the text splitter with the decided chunk size and overlap
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+
+            # Split documents into chunks
+            texts = text_splitter.split_documents(pages)
+            print(f"Number of text chunks created: {len(texts)}")
+
+            # Combine chunks into a single string
+            final_texts = ""
+            for text in texts:
+                final_texts += text.page_content
+                # just printing the length of the chunk
+                print(f"Chunk length: {len(text.page_content)}")
+
+            if not final_texts.strip():
+                print("Warning: Extracted text is empty.")
+
+            return final_texts
+
+        except FileNotFoundError:
+            print(f"Error: File not found {file}.")
+            return ""
+        except Exception as e:
+            print(f"Error processing file {file}: {e}")
+            return "" """
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
