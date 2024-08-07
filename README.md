@@ -1,6 +1,6 @@
 # AI_Summarizer
 
-The goal is to build an AI-powered summarizer using LLMs for any article or text, where the user only has to provide the URL of the article or pdf.
+The goal of this application is to provide users with efficient summarization of long texts, such as PDFs and news articles available on the Internet. Using advanced natural language processing models, the application provides both abstractive and extractive summarization options. It also includes a question-answering feature that allows users to query the summarized content. Finally, the summarized information can be saved as a PDF, meeting users' needs for easy storage and sharing.
 
 #### Contents:
 - [Analysis](#analysis)
