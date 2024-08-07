@@ -12,7 +12,7 @@ The goal of this application is to provide users with efficient summarization of
 
 ### Scenario
 
-As a group, we had decided to build a simple Python program that uses a simple and understandable GUI (which will be built with the help of PyQt5). With the decided use stories below, we have decided to use beautiful soup for parsing and the summarization has been done with the help of models available in hugging face platform.
+As a group, we had decided to build a simple Python program that uses a simple and understandable GUI (which will be built using PyQt5). With the decided use cases below, we decided to provide both abstractive and extractive summarization feature for new articles and uploaded pdfs. In our code, abstractive summarization is performed using the BART and Longformer model, which generates concise summaries by rephrasing the original text. And extractive summarization is performed using the TextRank algorithm, which identifies and extracts the most important sentences from the text.
 
 ### User Stories
 
