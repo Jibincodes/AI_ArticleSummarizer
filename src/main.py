@@ -7,26 +7,22 @@ from bs4 import BeautifulSoup
 from transformers import BartForConditionalGeneration, BartTokenizer, BertTokenizer, BertForQuestionAnswering, LongformerTokenizer, LongformerModel
 import torch
 from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-from textwrap import wrap
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import inch
+
 # for extracting from PDF
 import fitz
 import re
-#------------------------------------
-#from langchain.text_splitter import RecursiveCharacterTextSplitter
-#from langchain_community.document_loaders import PyPDFLoader
-#import pypdf
-#import sentencepiece
-#----------------------------------------------------------------
+
 # for extractive summarization
 import numpy as np
 import networkx as nx
-from nltk.tokenize import sent_tokenize, word_tokenize
-from nltk.corpus import stopwords
-from sklearn.metrics.pairwise import cosine_similarity
 import nltk
+from nltk.tokenize import sent_tokenize
 nltk.download('punkt')
-nltk.download('stopwords')
+from sklearn.metrics.pairwise import cosine_similarity
+from sentence_transformers import SentenceTransformer
 #---------------------------------------------------------------
 # using the BART model for summarization
 # according to huggingface documentation, the BART model is one of the best for summarization tasks
@@ -47,6 +43,8 @@ bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
 bert_model = BertForQuestionAnswering.from_pretrained(bert_model_name)
 #----------------------------------------
 
+#the model for extractive summarization for the textrank algorithm
+model1 = SentenceTransformer('paraphrase-MiniLM-L6-v2')
 class SummarizerApp(QWidget):
     def __init__(self):
         super().__init__()
@@ -75,8 +73,8 @@ class SummarizerApp(QWidget):
         layout.addLayout(self.radio_layout)
 
         # adding new buttons to choose between abstractive and extractive summarization
-        self.abstractive_radio = QRadioButton('Abstractive')
-        self.extractive_radio = QRadioButton('Extractive')
+        self.abstractive_radio = QRadioButton('Abstractive summarization')
+        self.extractive_radio = QRadioButton('Extractive summarization')
         self.abstractive_radio.setChecked(True)
 
         self.summarization_radio_layout = QHBoxLayout()
@@ -147,7 +145,6 @@ class SummarizerApp(QWidget):
      elif self.pdf_radio.isChecked():
          if self.pdf_text:
              summary = self.summarize_text(self.pdf_text)
-             #summary = self.summarize_text_with_gemini(self.pdf_text)
              self.summary_output.setText(summary)
          else:
              self.summary_output.setText("Please upload a PDF file to summarize.")
@@ -169,9 +166,8 @@ class SummarizerApp(QWidget):
         if self.abstractive_radio.isChecked():
             return self.abstractive_summarize(text)
         else:
-            #return self.extractive_summarize(text, num_sentences=10)
             return self.extractive_summary_textrank(text, num_sentences=10)
-            #return self.extractive_summary_tfidf(text, num_sentences=10)
+
 
     def abstractive_summarize(self, text):
         #-----------------------------------------------
@@ -183,80 +179,98 @@ class SummarizerApp(QWidget):
 
         summaries = []
         for chunk in chunks:
-            #convert the chunk to a tensor
-            #inputs = torch.tensor(chunk).unsqueeze(0)
-            #with torch.no_grad():
-            #    outputs = longformer_model(inputs)
 
             #-----------------------------------------------
-            #get the summary using BART model
+            #get the final summary using BART model
             chunk_text = longformer_tokenizer.decode(chunk, skip_special_tokens=True)
             bart_inputs = tokenizer.encode("summarize: " + chunk_text, return_tensors='pt', max_length=1024, truncation=True)
-            #inputs = t5_tokenizer.encode("summarize: " + chunk_text, return_tensors='pt', max_length=1024, truncation=True)
-             # generate the summary output using beam search
             summary_ids = model.generate(bart_inputs, max_length=600, min_length=300, length_penalty=2.0, num_beams=4,
                                      early_stopping=True)
-            #summary_ids = t5_model.generate(inputs, max_length=600, min_length=300, length_penalty=2.0, num_beams=4, early_stopping=True)
 
             # decode the summary output and remove the special tokens
             summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
-            #summary = t5_tokenizer.decode(summary_ids[0], skip_special_tokens=True)
             summaries.append(summary)
 
         combined_summary = ' '.join(summaries)
-        # Now summarize the combined summary text
-        #bart_inputs = tokenizer.encode("summarize: " + combined_summary, return_tensors='pt', max_length=1024,
-        #                               truncation=True)
-        #summary_ids = model.generate(bart_inputs, max_length=600, min_length=300, length_penalty=2.0, num_beams=8,
-        #                             early_stopping=True)
-        #final_summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
         return combined_summary
 
     #-------------------------------------------------------
-    #this is the extractive summarization using the textrank algorithm
-    def sentence_similarity(self, sent1, sent2, stopwords=None):
-        if stopwords is None:
-            stopwords = []
+    #This is the extractive summarization using the textrank algorithm
+    #The model required has been already loaded above
+    def preprocess_text(self, text):
+        try:
+            sentences = sent_tokenize(text)
+            return sentences
+        except Exception as e:
+            print(f"Error in preprocess_text: {e}")
+            return []
 
-        sent1 = [w.lower() for w in word_tokenize(sent1) if w.lower() not in stopwords and w not in string.punctuation]
-        sent2 = [w.lower() for w in word_tokenize(sent2) if w.lower() not in stopwords and w not in string.punctuation]
+    def build_similarity_matrix(self, sentences):
+        if model1 is None:
+            return np.array([])
+        try:
+            embeddings = model1.encode(sentences)
+            similarity_matrix = cosine_similarity(embeddings)
 
-        all_words = list(set(sent1 + sent2))
+            # Clip values to avoid overflow due to floating point errors
+            np.clip(similarity_matrix, -1.0, 1.0, out=similarity_matrix)
 
-        vector1 = [0] * len(all_words)
-        vector2 = [0] * len(all_words)
+            # diagonal elements are set to zero
+            np.fill_diagonal(similarity_matrix, 0)
 
-        for w in sent1:
-            vector1[all_words.index(w)] += 1
+            # Normalizing the similarity matrix
+            norm = np.linalg.norm(similarity_matrix, axis=1, keepdims=True)
+            norm[norm == 0] = 1  # making sure we don't divide by zero
+            normalized_similarity_matrix = similarity_matrix / norm
 
-        for w in sent2:
-            vector2[all_words.index(w)] += 1
+            # Debug testing
+            print("Embeddings shape:", embeddings.shape)
+            print("Similarity matrix shape:", similarity_matrix.shape)
+            print("Similarity matrix max value:", np.max(similarity_matrix))
+            print("Similarity matrix min value:", np.min(similarity_matrix))
 
-        return cosine_similarity([vector1], [vector2])[0][0]
+            return normalized_similarity_matrix
+        except Exception as e:
+            print(f"Error in build_similarity_matrix: {e}")
+            return np.array([])
 
-    def build_similarity_matrix(self, sentences, stop_words):
-        similarity_matrix = np.zeros((len(sentences), len(sentences)))
+    # Extractive summarization function
+    def extractive_summary_textrank(self, text, num_sentences=10, max_iter=1000, alpha=0.85):
+        try:
+            sentences = self.preprocess_text(text)
+            if not sentences:
+                return "Error in preprocessing text."
 
-        for idx1 in range(len(sentences)):
-            for idx2 in range(len(sentences)):
-                if idx1 != idx2:
-                    similarity_matrix[idx1][idx2] = self.sentence_similarity(sentences[idx1], sentences[idx2],
-                                                                             stop_words)
+            # Filter out the sentences containing URLs, because in pdf there are always unwanted URLS
+            url_pattern = re.compile(r'http\S+|www\S+')
+            filtered_sentences = [s for s in sentences if not url_pattern.search(s)]
 
-        return similarity_matrix
+            if not filtered_sentences:
+                return "Error: No valid sentences after filtering out URLs."
 
-    def extractive_summary_textrank(self, text, num_sentences=10):
-        stop_words = stopwords.words('english')
-        sentences = sent_tokenize(text)
+            similarity_matrix = self.build_similarity_matrix(filtered_sentences)
+            if similarity_matrix.size == 0:
+                return "Error in building similarity matrix."
 
-        sentence_similarity_matrix = self.build_similarity_matrix(sentences, stop_words)
-        sentence_similarity_graph = nx.from_numpy_array(sentence_similarity_matrix)
-        scores = nx.pagerank(sentence_similarity_graph)
+            sentence_similarity_graph = nx.from_numpy_array(similarity_matrix)
+            try:
+                scores = nx.pagerank(sentence_similarity_graph, max_iter=max_iter, alpha=alpha)
+            except nx.PowerIterationFailedConvergence as e:
+                print(f"Power iteration failed to converge: {e}")
+                return "Error: Power iteration failed to converge."
 
-        ranked_sentences = sorted(((scores[i], s) for i, s in enumerate(sentences)), reverse=True)
+            ranked_sentences = sorted(((scores[i], s) for i, s in enumerate(filtered_sentences)), reverse=True)
+            summarize_text = [ranked_sentences[i][1] for i in range(min(num_sentences, len(ranked_sentences)))]
 
-        summarize_text = [ranked_sentences[i][1] for i in range(min(num_sentences, len(ranked_sentences)))]
-        return " ".join(summarize_text)
+            clean_summary = " ".join(summarize_text).replace(" .", ".").replace(" ,", ",").replace(" !", "!").replace(
+                " ?", "?")
+            # Removing any unnecessary spaces
+            clean_summary = " ".join(clean_summary.split())
+
+            return clean_summary
+        except Exception as e:
+            print(f"Error in extractive_summary_textrank: {e}")
+            return "Error in extractive summarization."
     #this is the end of extractive summarization
 
     # Function to answer the question based on the article text
@@ -266,8 +280,6 @@ class SummarizerApp(QWidget):
         question = self.question_input.text()
         context = self.summary_output.toPlainText()
         if question and context:
-        #if question and article_text:
-            #answer = self.get_answer(question, article_text)
             answer = self.get_answer(question, context)
             self.answer_output.setText(answer)
         else:
@@ -307,28 +319,31 @@ class SummarizerApp(QWidget):
                 self.save_pdf(file_path, summary)
         else:
             self.answer_output.setText("No summary to export.")
+
+    #function to save the summary as a pdf file
     def save_pdf(self, file_path, summary):
-     try:
-        c = canvas.Canvas(file_path, pagesize=letter)
-        width, height = letter
-        c.drawString(100, height - 100, "Summary:")
-        text = c.beginText(100, height - 120)
-        text.setFont("Times-Roman", 12)
-        wrapped_text = wrap(summary, 80)  # Wrap text at 80 characters
-        for line in wrapped_text:
-            text.textLine(line)
-        c.drawText(text)
-        c.save()
-        QMessageBox.information(self, "PDF Saved", "The summary has been successfully saved as a PDF.")
-     except Exception as e:
-        QMessageBox.critical(self, "Error", f"Error saving PDF: {e}")
+        try:
+            doc = SimpleDocTemplate(file_path, pagesize=letter)
+            styles = getSampleStyleSheet()
+            style = styles['Normal']
+            style.leading = 16
+
+            elements = []
+            elements.append(Paragraph("Summary:", styles['Title']))
+            elements.append(Spacer(1, 0.2 * inch))
+            # Adding the summary text
+            elements.append(Paragraph(summary, style))
+            doc.build(elements)
+
+            QMessageBox.information(self, "PDF Saved", "The summary has been successfully saved as a PDF.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error saving PDF: {e}")
 
     #function to upload the pdf file and extract the text
     def upload_pdf(self):
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getOpenFileName(self, "Upload PDF", "", "PDF Files (*.pdf);;All Files (*)", options=options)
         if file_path:
-            #self.pdf_text = self.file_preprocessing(file_path)
             self.pdf_text = self.get_pdf_text(file_path)
             if self.pdf_text:
                 self.summary_output.setText("PDF uploaded successfully. Click 'Summarize' to get the summary.")
@@ -337,9 +352,9 @@ class SummarizerApp(QWidget):
 
     #function to clean the text
     def clean_text(self, text):
-        # Remove multiple newlines
+        # Removing multiple newlines
         text = re.sub(r'\n+', '\n', text)
-        # Remove leading/trailing whitespace
+        # Removing leading/trailing whitespace
         text = text.strip()
         return text
 
@@ -350,14 +365,14 @@ class SummarizerApp(QWidget):
             text = ""
             for page_num in range(len(doc)):
                 page = doc.load_page(page_num)
-                blocks = page.get_text("blocks")  # Get text blocks
+                blocks = page.get_text("blocks")
 
-                # Sorting the blocks by their vertical and then horizontal positions
+                # Sorting the blocks by their vertical and then horizontal positions to get the text in order
                 blocks.sort(key=lambda b: (b[1], b[0]))
 
                 for block in blocks:
-                    text += block[4]  # Extract the actual text from the block
-                    text += "\n"  # newline to separate blocks
+                    text += block[4]
+                    text += "\n"
 
                 text += "\n"  # newline to separate pages
 
@@ -369,7 +384,6 @@ class SummarizerApp(QWidget):
     #function is not used, this is an alternative to the get_pdf_text function
     """def file_preprocessing(self, file):
         try:
-            # Load PDF file
             print(f"Loading PDF file: {file}")
             loader = PyPDFLoader(file)
             pages = loader.load_and_split()
@@ -382,11 +396,10 @@ class SummarizerApp(QWidget):
             texts = text_splitter.split_documents(pages)
             print(f"Number of text chunks created: {len(texts)}")
 
-            # Combine chunks into a single string
+            # Combining chunks into a single string
             final_texts = ""
             for text in texts:
                 final_texts += text.page_content
-                # just printing the length of the chunk
                 print(f"Chunk length: {len(text.page_content)}")
 
             if not final_texts.strip():
