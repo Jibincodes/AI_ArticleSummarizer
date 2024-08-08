@@ -1,7 +1,7 @@
 import string
 import sys
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QTextEdit, QFileDialog, \
-    QMessageBox, QRadioButton, QHBoxLayout, QButtonGroup
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QTextEdit, QFileDialog, QMessageBox, QRadioButton, QHBoxLayout, QProgressBar, QGroupBox, QStatusBar
+from PyQt5.QtCore import Qt
 import requests
 from bs4 import BeautifulSoup
 from transformers import BartForConditionalGeneration, BartTokenizer, BertTokenizer, BertForQuestionAnswering, LongformerTokenizer, LongformerModel
@@ -57,97 +57,106 @@ class SummarizerApp(QWidget):
 
         layout = QVBoxLayout()
         #---------------------------------------
-        # adding radio buttons to choose between summarization feature for url or pdf
+        # Group for Source Selection of url or pdf
+        source_group = QGroupBox("Select Source")
+        source_layout = QHBoxLayout()
         self.url_radio = QRadioButton('URL')
         self.pdf_radio = QRadioButton('PDF')
         self.url_radio.setChecked(True)
+        source_layout.addWidget(self.url_radio)
+        source_layout.addWidget(self.pdf_radio)
+        source_group.setLayout(source_layout)
+        layout.addWidget(source_group)
 
-        self.radio_layout = QHBoxLayout()
-        self.radio_layout.addWidget(self.url_radio)
-        self.radio_layout.addWidget(self.pdf_radio)
-
-        self.radio_group = QButtonGroup()
-        self.radio_group.addButton(self.url_radio)
-        self.radio_group.addButton(self.pdf_radio)
-
-        layout.addLayout(self.radio_layout)
-
-        # adding new buttons to choose between abstractive and extractive summarization
-        self.abstractive_radio = QRadioButton('Abstractive summarization')
-        self.extractive_radio = QRadioButton('Extractive summarization')
+        # Group for Summarization Type between abstractive and extractive
+        summary_group = QGroupBox("Summarization Type")
+        summary_layout = QHBoxLayout()
+        self.abstractive_radio = QRadioButton('Abstractive')
+        self.extractive_radio = QRadioButton('Extractive')
         self.abstractive_radio.setChecked(True)
+        summary_layout.addWidget(self.abstractive_radio)
+        summary_layout.addWidget(self.extractive_radio)
+        summary_group.setLayout(summary_layout)
+        layout.addWidget(summary_group)
 
-        self.summarization_radio_layout = QHBoxLayout()
-        self.summarization_radio_layout.addWidget(self.abstractive_radio)
-        self.summarization_radio_layout.addWidget(self.extractive_radio)
-
-        self.summarization_radio_group = QButtonGroup()
-        self.summarization_radio_group.addButton(self.abstractive_radio)
-        self.summarization_radio_group.addButton(self.extractive_radio)
-
-        layout.addLayout(self.summarization_radio_layout)
-        #---------------------------------------
+        # for entering the news article URL
         self.url_label = QLabel('Enter the news Article URL:')
         layout.addWidget(self.url_label)
-
         self.url_input = QLineEdit(self)
         layout.addWidget(self.url_input)
 
+        # Uploading the PDF file button
         self.upload_button = QPushButton('Upload PDF', self)
         self.upload_button.clicked.connect(self.upload_pdf)
         layout.addWidget(self.upload_button)
 
+        # Summarize Button
         self.summarize_button = QPushButton('Summarize', self)
         self.summarize_button.clicked.connect(self.summarize_article)
         layout.addWidget(self.summarize_button)
 
+        # Progress Bar to improve the user experience
+        self.progress_bar = QProgressBar(self)
+        self.progress_bar.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.progress_bar)
+
+        # Status Bar to show messages
+        self.status_bar = QStatusBar(self)
+        layout.addWidget(self.status_bar)
+
+        # Summary Output Text Box
         self.summary_label = QLabel('Summary:')
         layout.addWidget(self.summary_label)
-
         self.summary_output = QTextEdit(self)
         self.summary_output.setReadOnly(True)
         layout.addWidget(self.summary_output)
 
-        #decided to add a question answering feature
+        # Question Answering feature with BERT
         self.question_label = QLabel('Enter the question:')
         layout.addWidget(self.question_label)
-
         self.question_input = QLineEdit(self)
         layout.addWidget(self.question_input)
-
-        self.answer_button = QPushButton('To Answer', self)
+        self.answer_button = QPushButton('Answer', self)
         self.answer_button.clicked.connect(self.answer_question)
         layout.addWidget(self.answer_button)
-
         self.answer_label = QLabel('Answer:')
         layout.addWidget(self.answer_label)
-
         self.answer_output = QTextEdit(self)
         self.answer_output.setReadOnly(True)
         layout.addWidget(self.answer_output)
 
-        #new export to pdf button
+        # Export to PDF Button
         self.export_button = QPushButton('Export as PDF', self)
         self.export_button.clicked.connect(self.export_to_pdf)
         layout.addWidget(self.export_button)
-        #-------------------------------------------
+
         self.setLayout(layout)
 
     def summarize_article(self):
-     if self.url_radio.isChecked():
-        url = self.url_input.text()
-        article_text = self.get_article_text(url)
-        if article_text:
-            summary = self.summarize_text(article_text)
-            self.summary_output.setText(summary)
-        else:
-            self.summary_output.setText("Could not fetch article text. Please check the URL and try again.")
-     elif self.pdf_radio.isChecked():
-         if self.pdf_text:
-             summary = self.summarize_text(self.pdf_text)
-             self.summary_output.setText(summary)
-         else:
-             self.summary_output.setText("Please upload a PDF file to summarize.")
+        self.progress_bar.setValue(0)
+        if self.url_radio.isChecked():
+            url = self.url_input.text()
+            article_text = self.get_article_text(url)
+            if article_text:
+                self.status_bar.showMessage("Summarizing article...")
+                self.progress_bar.setValue(30)
+                summary = self.summarize_text(article_text)
+                self.summary_output.setText(summary)
+                self.status_bar.showMessage("Summarization completed.", 5000)
+            else:
+                self.summary_output.setText("Could not fetch article text. Please check the URL and try again.")
+                self.status_bar.showMessage("Error fetching article text.", 5000)
+        elif self.pdf_radio.isChecked():
+            if self.pdf_text:
+                self.status_bar.showMessage("Summarizing PDF text...")
+                self.progress_bar.setValue(30)
+                summary = self.summarize_text(self.pdf_text)
+                self.summary_output.setText(summary)
+                self.status_bar.showMessage("Summarization completed.", 5000)
+            else:
+                self.summary_output.setText("Please upload a PDF file to summarize.")
+                self.status_bar.showMessage("No PDF file uploaded.", 5000)
+        self.progress_bar.setValue(100)
 
 
     # Function to fetch the article text from the URL using paragraph tags
@@ -266,7 +275,6 @@ class SummarizerApp(QWidget):
                 " ?", "?")
             # Removing any unnecessary spaces
             clean_summary = " ".join(clean_summary.split())
-
             return clean_summary
         except Exception as e:
             print(f"Error in extractive_summary_textrank: {e}")
@@ -341,14 +349,16 @@ class SummarizerApp(QWidget):
 
     #function to upload the pdf file and extract the text
     def upload_pdf(self):
-        options = QFileDialog.Options()
-        file_path, _ = QFileDialog.getOpenFileName(self, "Upload PDF", "", "PDF Files (*.pdf);;All Files (*)", options=options)
-        if file_path:
-            self.pdf_text = self.get_pdf_text(file_path)
+        file_name, _ = QFileDialog.getOpenFileName(self, 'Open PDF File', '', 'PDF Files (*.pdf)')
+        if file_name:
+            self.status_bar.showMessage("Extracting text from PDF...")
+            self.progress_bar.setValue(10)
+            self.pdf_text = self.get_pdf_text(file_name)
             if self.pdf_text:
-                self.summary_output.setText("PDF uploaded successfully. Click 'Summarize' to get the summary.")
+                self.status_bar.showMessage("Text extraction completed.", 5000)
+                self.progress_bar.setValue(100)
             else:
-                self.summary_output.setText("Could not extract text from PDF. Please try again.")
+                self.status_bar.showMessage("Failed to extract text from PDF.", 5000)
 
     #function to clean the text
     def clean_text(self, text):
