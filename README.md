@@ -6,6 +6,7 @@ The goal of this application is to provide users with efficient summarization of
 - [Analysis](#analysis)
   - [Scenario](#scenario)
   - [User Stories](#user-stories)
+- [Requirements](#requirements)  
 
 
 ## Analysis
@@ -23,3 +24,33 @@ As a group, we had decided to build a simple Python program that uses a simple a
 5. As a user, I want to extract answers to specific questions from news article/PDF document summaries so that I can quickly find information without having to search through the entire text.
 6. As a user, I want the application to be simple and easy to use, with clear instructions for entering article URLs, uploading PDFs, asking questions, and viewing summaries and answers.
 7. As a user, I want to be able to export the generated summary as a PDF file so that I can easily share it with colleagues or refer to it later.
+
+## Requirements
+
+To make the application easier to use, we have prepared a requirements.txt file that lists all the libraries and their versions needed to make the application work. For convenience, I have also listed them below.
+
+pyqt5==5.15.10
+
+requests==2.32.3
+
+beautifulsoup4==4.12.3
+
+transformers==4.44.0
+
+torch==2.3.1
+
+reportlab==4.2.2
+
+PyMuPDF==1.24.7
+
+nltk==3.8.1
+
+numpy==1.26.4
+
+networkx==3.3
+
+scikit-learn==1.5.1
+
+sentence-transformers==3.0.1
+
+sentencepiece==0.2.0
